@@ -72,7 +72,7 @@ Men <b>${botName}</b> — guruhlaringiz xavfsizligini ta'minlovchi professional 
 
       await ctx.replyWithHTML(welcomeText, Markup.inlineKeyboard([
         [Markup.button.url("➕ Guruhga qo'shish", `https://t.me/${botUser}?startgroup=true`)],
-        [Markup.button.url("👨‍💻 Dasturchi", "https://t.me/tuitchat_gr")]
+        [Markup.button.url("👨‍💻 Dasturchi", "https://t.me/ninja_askbot")]
       ]));
     } catch (e) { console.error('Start Command Error:', e); }
   });
