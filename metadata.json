@@ -1,0 +1,5 @@
+{
+  "name": "UzModeratorBot",
+  "description": "Professional Telegram guruh moderatori. Telegraf kutubxonasida, so'kinishlarni filtrlovchi, ogohlantirish (warn), mute va ban tizimiga ega mukammal bot.",
+  "requestFramePermissions": []
+}
