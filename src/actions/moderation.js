@@ -27,11 +27,11 @@ export const moderation = {
       if (count >= maxWarn) {
         await moderation.muteUser(ctx, userId, 240); // 4 soat mute
         await db.resetWarns(chatId, userId);
-        text += `\n\n🚫 ${maxWarn}-chi warn: Foydalanuvchi 4 soatga guruhdan chetlatildi (MUTE).`;
+        text += `\n\n🚫 ${maxWarn}-chi warn: Foydalanuvchi qoidalarni ko'p buzgani uchun 4 soatga guruhdan chetlatildi (MUTE).`;
       }
 
       const reply = await ctx.replyWithHTML(text);
-      // Warn xabari 10 soniyada o'chadi
+      // Warn xabari 10 soniyada o'chadi, tugmasi yo'q
       setTimeout(() => ctx.telegram.deleteMessage(chatId, reply.message_id).catch(() => {}), WARN_MSG_DURATION);
       
     } catch (e) { console.error('[WARN ERROR]', e); }
@@ -56,6 +56,10 @@ export const moderation = {
   },
   unmuteUser: async (ctx, userId) => {
     try {
+      // Holatni tekshirish
+      const member = await ctx.getChatMember(userId);
+      if (member.status !== 'restricted') return "NOT_MUTED";
+
       await db.resetWarns(ctx.chat.id, userId);
       await ctx.telegram.restrictChatMember(ctx.chat.id, userId, {
         permissions: { 
@@ -77,6 +81,10 @@ export const moderation = {
   },
   unbanUser: async (ctx, userId) => {
     try {
+      // Holatni tekshirish
+      const member = await ctx.getChatMember(userId);
+      if (member.status === 'member' || member.status === 'administrator' || member.status === 'creator') return "NOT_BANNED";
+
       await ctx.telegram.unbanChatMember(ctx.chat.id, userId);
       return true;
     } catch (e) { return false; }
