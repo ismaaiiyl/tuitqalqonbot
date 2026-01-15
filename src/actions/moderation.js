@@ -3,6 +3,7 @@ import { db } from '../services/supabase.service.js';
 import { Markup } from 'telegraf';
 
 const DEFAULT_MAX_WARN = 5;
+const MUTE_MSG_DURATION = 1800000; // 30 daqiqa (ms)
 
 export const moderation = {
   deleteMsg: async (ctx, msgId = null) => {
@@ -39,10 +40,13 @@ export const moderation = {
         await db.resetWarns(chatId, userId);
         text += `\n\n🚫 ${maxWarn}-chi warn: 4 soat MUTE va warnlar nollandi.`;
         keyboard = Markup.inlineKeyboard([[Markup.button.callback("🔓 Ozod qilish", `unmute_${userId}`)]]);
+      } else {
+        keyboard = Markup.inlineKeyboard([[Markup.button.callback("🗑 Warnni o'chirish", `unmute_${userId}`)]]);
       }
 
       const reply = await ctx.replyWithHTML(text, keyboard);
-      setTimeout(() => ctx.telegram.deleteMessage(chatId, reply.message_id).catch(() => {}), 10000);
+      // Jazo xabari guruhda 30 daqiqa turadi
+      setTimeout(() => ctx.telegram.deleteMessage(chatId, reply.message_id).catch(() => {}), MUTE_MSG_DURATION);
       
     } catch (e) { console.error('[WARN ERROR]', e); }
   },
@@ -52,7 +56,12 @@ export const moderation = {
       const until = mins > 0 ? Math.floor(Date.now() / 1000) + mins * 60 : 0;
       await ctx.telegram.restrictChatMember(ctx.chat.id, userId, {
         until_date: until,
-        permissions: { can_send_messages: false }
+        permissions: { 
+          can_send_messages: false,
+          can_send_media_messages: false,
+          can_send_other_messages: false,
+          can_add_web_page_previews: false
+        }
       });
       return true;
     } catch (e) { 
@@ -66,13 +75,18 @@ export const moderation = {
       await db.resetWarns(ctx.chat.id, userId);
       await ctx.telegram.restrictChatMember(ctx.chat.id, userId, {
         permissions: { 
-          can_send_messages: true, can_send_media_messages: true, 
-          can_send_polls: true, can_send_other_messages: true, 
+          can_send_messages: true, 
+          can_send_media_messages: true, 
+          can_send_polls: true, 
+          can_send_other_messages: true, 
           can_add_web_page_previews: true 
         }
       });
       return true;
-    } catch (e) { return false; }
+    } catch (e) { 
+      console.error("[UNMUTE ERROR]", e.message);
+      return false; 
+    }
   },
   banUser: async (ctx, userId) => {
     try {

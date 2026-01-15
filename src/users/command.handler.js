@@ -4,6 +4,8 @@ import { db } from '../services/supabase.service.js';
 import { moderation } from '../actions/moderation.js';
 import { opService } from '../services/op.service.js';
 
+const ACTION_MSG_DURATION = 1800000; // 30 daqiqa (ms)
+
 export const handleCommands = (bot) => {
   const checkAdmin = async (ctx) => {
     try {
@@ -16,7 +18,8 @@ export const handleCommands = (bot) => {
     try {
       const match = text.match(/(\d+)(min|h|d)/i);
       if (!match) {
-        const num = text.split(' ').find(p => !isNaN(p) && p.length < 6);
+        const parts = text.split(' ');
+        const num = parts.find(p => !isNaN(p) && p.length < 6);
         return num ? parseInt(num) : 0;
       }
       const val = parseInt(match[1]);
@@ -30,21 +33,37 @@ export const handleCommands = (bot) => {
 
   const getTargetUser = (ctx) => {
     try {
+      // 1. Reply bo'lsa
       if (ctx.message.reply_to_message) {
         return {
           id: ctx.message.reply_to_message.from.id,
-          name: ctx.message.reply_to_message.from.first_name
+          name: ctx.message.reply_to_message.from.first_name || "Foydalanuvchi"
         };
       }
-      const entities = ctx.message.entities;
-      if (entities) {
-        for (const ent of entities) {
-          if (ent.type === 'text_mention') return { id: ent.user.id, name: ent.user.first_name };
+      
+      // 2. Entities orqali (Mention yoki Text Mention)
+      const entities = ctx.message.entities || [];
+      for (const ent of entities) {
+        if (ent.type === 'text_mention') {
+          return { id: ent.user.id, name: ent.user.first_name };
+        }
+        if (ent.type === 'mention') {
+          const username = ctx.message.text.substring(ent.offset, ent.offset + ent.length);
+          return { id: username, name: username };
         }
       }
+
+      // 3. Matn ichidan ID yoki Username qidirish
       const parts = ctx.message.text.split(' ');
-      const potentialId = parts.find(p => !isNaN(p) && p.length > 5);
-      if (potentialId) return { id: potentialId, name: "Foydalanuvchi" };
+      const targetPart = parts.find(p => p !== parts[0] && (p.startsWith('@') || !isNaN(p)));
+      
+      if (targetPart) {
+        if (!isNaN(targetPart) && targetPart.length > 5) {
+          return { id: targetPart, name: "Foydalanuvchi" };
+        }
+        return { id: targetPart, name: targetPart };
+      }
+      
       return null;
     } catch (e) { return null; }
   };
@@ -52,12 +71,10 @@ export const handleCommands = (bot) => {
   bot.start(async (ctx) => {
     try {
       if (ctx.chat.type !== 'private') return;
-
       const botName = ctx.botInfo.first_name;
       const botUser = ctx.botInfo.username;
-
-      const welcomeText = `
-👋 <b>Assalomu alaykum, ${ctx.from.first_name}!</b>
+      
+      const welcomeText = `👋 <b>Assalomu alaykum, ${ctx.from.first_name}!</b>
 
 Men <b>${botName}</b> — guruhlaringiz xavfsizligini ta'minlovchi professional moderator botman.
 
@@ -74,23 +91,23 @@ Men <b>${botName}</b> — guruhlaringiz xavfsizligini ta'minlovchi professional 
         [Markup.button.url("➕ Guruhga qo'shish", `https://t.me/${botUser}?startgroup=true`)],
         [Markup.button.url("👨‍💻 Dasturchi", "https://t.me/ninja_askbot")]
       ]));
-    } catch (e) { console.error('Start Command Error:', e); }
+    } catch (e) {}
   });
 
   bot.command('mute', async (ctx) => {
     try {
       if (ctx.chat.type === 'private' || !await checkAdmin(ctx)) return;
       const target = getTargetUser(ctx);
-      if (!target) return ctx.reply("❌ Foydalanuvchini topolmadim.").then(m => setTimeout(() => ctx.deleteMessage(m.message_id).catch(() => {}), 5000));
+      if (!target) return ctx.reply("❌ Foydalanuvchini aniqlab bo'lmadi (reply qiling, @username yoki ID yozing).").then(m => setTimeout(() => ctx.deleteMessage(m.message_id).catch(() => {}), 5000));
 
       const mins = parseDuration(ctx.message.text);
       const res = await moderation.muteUser(ctx, target.id, mins);
       if (res) {
         const reply = await ctx.replyWithHTML(
-          `🔇 <b>${target.name}</b> ${mins > 0 ? (mins >= 1440 ? (mins/1440)+' kunga' : (mins >= 60 ? (mins/60)+' soatga' : mins+' daqiqaga')) : 'umrbod'} jimgina o'tiradigan bo'ldi.`,
+          `🔇 <b>${target.name}</b> ${mins > 0 ? (mins >= 1440 ? (Math.floor(mins/1440))+' kunga' : (mins >= 60 ? (Math.floor(mins/60))+' soatga' : mins+' daqiqaga')) : 'umrbod'} jimgina o'tiradigan bo'ldi.`,
           Markup.inlineKeyboard([[Markup.button.callback("🔓 Ozod qilish", `unmute_${target.id}`)]])
         );
-        setTimeout(() => ctx.telegram.deleteMessage(ctx.chat.id, reply.message_id).catch(() => {}), 10000);
+        setTimeout(() => ctx.telegram.deleteMessage(ctx.chat.id, reply.message_id).catch(() => {}), ACTION_MSG_DURATION);
         moderation.deleteMsg(ctx);
       }
     } catch (e) {}
@@ -108,7 +125,7 @@ Men <b>${botName}</b> — guruhlaringiz xavfsizligini ta'minlovchi professional 
           `❌ <b>${target.name}</b> guruhdan haydaldi.`,
           Markup.inlineKeyboard([[Markup.button.callback("🔓 Ozod qilish", `unban_${target.id}`)]])
         );
-        setTimeout(() => ctx.telegram.deleteMessage(ctx.chat.id, reply.message_id).catch(() => {}), 10000);
+        setTimeout(() => ctx.telegram.deleteMessage(ctx.chat.id, reply.message_id).catch(() => {}), ACTION_MSG_DURATION);
         moderation.deleteMsg(ctx);
       }
     } catch (e) {}
@@ -118,21 +135,21 @@ Men <b>${botName}</b> — guruhlaringiz xavfsizligini ta'minlovchi professional 
     try {
       if (ctx.chat.type === 'private' || !await checkAdmin(ctx)) return;
       const target = getTargetUser(ctx);
-      if (!target) return;
+      if (!target) return ctx.reply("❌ Foydalanuvchini aniqlab bo'lmadi.");
       
       const isUnban = ctx.message.text.includes('unban');
       const res = isUnban ? await moderation.unbanUser(ctx, target.id) : await moderation.unmuteUser(ctx, target.id);
       
       if (res) {
         const reply = await ctx.replyWithHTML(`✅ <b>${target.name}</b> ${isUnban ? 'bandan' : 'mutedan'} olindi.`);
-        setTimeout(() => ctx.telegram.deleteMessage(ctx.chat.id, reply.message_id).catch(() => {}), 10000);
+        setTimeout(() => ctx.telegram.deleteMessage(ctx.chat.id, reply.message_id).catch(() => {}), ACTION_MSG_DURATION);
         moderation.deleteMsg(ctx);
       }
     } catch (e) {}
   });
 
   bot.command('myid', (ctx) => {
-    try { ctx.reply(`User ID: ${ctx.from.id}`).then(m => setTimeout(() => ctx.deleteMessage(m.message_id).catch(() => {}), 10000)); } catch (e) {}
+    try { ctx.reply(`Sizning ID: <code>${ctx.from.id}</code>`, { parse_mode: 'HTML' }).then(m => setTimeout(() => ctx.deleteMessage(m.message_id).catch(() => {}), 15000)); } catch (e) {}
   });
 };
 
@@ -154,10 +171,10 @@ export const handleActions = (bot) => {
         const text = `✅ <a href="tg://user?id=${userId}">${userId}</a> admin tomonidan mutedan olindi.`;
         try {
           await ctx.editMessageText(text, { parse_mode: 'HTML' });
-          setTimeout(() => ctx.deleteMessage().catch(() => {}), 10000);
+          setTimeout(() => ctx.deleteMessage().catch(() => {}), ACTION_MSG_DURATION);
         } catch (err) {
           const reply = await ctx.replyWithHTML(text);
-          setTimeout(() => ctx.telegram.deleteMessage(ctx.chat.id, reply.message_id).catch(() => {}), 10000);
+          setTimeout(() => ctx.telegram.deleteMessage(ctx.chat.id, reply.message_id).catch(() => {}), ACTION_MSG_DURATION);
         }
       }
     } catch (e) {}
@@ -173,10 +190,10 @@ export const handleActions = (bot) => {
         const text = `✅ <a href="tg://user?id=${userId}">${userId}</a> admin tomonidan bandan olindi.`;
         try {
           await ctx.editMessageText(text, { parse_mode: 'HTML' });
-          setTimeout(() => ctx.deleteMessage().catch(() => {}), 10000);
+          setTimeout(() => ctx.deleteMessage().catch(() => {}), ACTION_MSG_DURATION);
         } catch (err) {
           const reply = await ctx.replyWithHTML(text);
-          setTimeout(() => ctx.telegram.deleteMessage(ctx.chat.id, reply.message_id).catch(() => {}), 10000);
+          setTimeout(() => ctx.telegram.deleteMessage(ctx.chat.id, reply.message_id).catch(() => {}), ACTION_MSG_DURATION);
         }
       }
     } catch (e) {}
