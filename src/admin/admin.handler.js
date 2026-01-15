@@ -34,7 +34,6 @@ export const handleAdmin = (bot) => {
       const s = await db.getSettings(ctx.chat.id);
       const reply = await ctx.replyWithHTML(`<b>⚙️ Guruh Sozlamalari</b>\n\nFiltrlarni yoqish yoki o'chirish uchun tugmalarni bosing. Ushbu menyu 5 daqiqadan so'ng o'chib ketadi:`, getSettingsMenu(s));
       
-      // Settings menyusi 5 daqiqadan keyin o'chadi
       setTimeout(() => ctx.telegram.deleteMessage(ctx.chat.id, reply.message_id).catch(() => {}), SETTINGS_MSG_DURATION);
       
     } catch (e) { console.error('[SETTINGS CMD ERROR]', e); }
