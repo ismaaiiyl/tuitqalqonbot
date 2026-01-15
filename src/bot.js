@@ -47,17 +47,50 @@ bot.catch((err, ctx) => {
   console.error(`🛑 Global Xatolik (${ctx.updateType}):`, err);
 });
 
-// Hosting uchun oddiy HTTP server (Render/Koyeb sog'lom deb o'ylashi uchun)
-const server = http.createServer((req, res) => {
-  res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('Bot is running...');
-});
-
+// Webhook va Health-check sozlamalari
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`📡 Health-check server port ${PORT} da ishlamoqda`);
-});
+const WEBHOOK_URL = process.env.WEBHOOK_URL; // Koyeb bergan public URL (masalan: https://app-name.koyeb.app)
 
-bot.launch().then(() => {
-  console.log("🚀 UzModeratorBot Active (Clean Architecture Mode)");
-}).catch(e => console.error("Launch Error:", e));
+if (WEBHOOK_URL) {
+  // WEBHOOK REJIMI (Koyeb uchun ideal)
+  const secretPath = `/telegraf/${bot.secretPathComponent()}`;
+  
+  bot.telegram.setWebhook(`${WEBHOOK_URL}${secretPath}`);
+  
+  const server = http.createServer((req, res) => {
+    if (req.url === '/' || req.url === '/health') {
+      res.writeHead(200);
+      res.end('UzModeratorBot is Alive and Healthy!');
+      return;
+    }
+    // Webhook so'rovlarini Telegraf-ga yo'naltirish
+    if (req.url === secretPath) {
+      bot.webhookCallback(secretPath)(req, res);
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+
+  server.listen(PORT, () => {
+    console.log(`🚀 Webhook mode: ${WEBHOOK_URL} (Port: ${PORT})`);
+  });
+} else {
+  // POLLING REJIMI (Local test uchun)
+  const server = http.createServer((req, res) => {
+    res.writeHead(200);
+    res.end('Bot is running in Polling mode...');
+  });
+  
+  server.listen(PORT, () => {
+    console.log(`📡 Polling mode: Health-check on port ${PORT}`);
+  });
+
+  bot.launch().then(() => {
+    console.log("🚀 UzModeratorBot Active (Polling)");
+  });
+}
+
+// Graceful stop
+process.once('SIGINT', () => bot.stop('SIGINT'));
+process.once('SIGTERM', () => bot.stop('SIGTERM'));
