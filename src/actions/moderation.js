@@ -10,59 +10,58 @@ export const moderation = {
       const mid = msgId || ctx.message?.message_id;
       const cid = ctx.chat?.id;
       if (mid && cid) {
-        console.log(`[MOD] Message Deleted: ${mid} in Chat: ${cid}`);
         await ctx.telegram.deleteMessage(cid, mid);
       }
-    } catch (e) { console.error("[MOD DELETE ERROR]", e.message); }
+    } catch (e) {}
   },
   warnUser: async (ctx, userId, reason) => {
     try {
       const chatId = ctx.chat.id;
-      console.log(`[MOD] Warning User: ${userId} in ${chatId} | Reason: ${reason}`);
-      
       const count = await db.addWarn(chatId, userId);
       const maxWarn = DEFAULT_MAX_WARN;
 
       let text = `⚠️ <b>Ogohlantirish!</b> (${count}/${maxWarn})\n👤 Foydalanuvchi: <a href="tg://user?id=${userId}">${userId}</a>\n📝 Sabab: ${reason}`;
       let keyboard = null;
+      let duration = 10000; // Standart 10 soniya
 
-      if (count === 3) {
-        await moderation.muteUser(ctx, userId, 10);
-        text += `\n\n🚫 3-warn uchun 10 daqiqa MUTE!`;
+      if (count === 4) {
+        await moderation.muteUser(ctx, userId, 60); // 1 soat
+        text += `\n\n🚫 <b>4-warn:</b> 1 soat MUTE!`;
         keyboard = Markup.inlineKeyboard([[Markup.button.callback("🔓 Ozod qilish", `unmute_${userId}`)]]);
-      } else if (count === 4) {
-        await moderation.muteUser(ctx, userId, 60);
-        text += `\n\n🚫 4-warn uchun 1 soat MUTE!`;
-        keyboard = Markup.inlineKeyboard([[Markup.button.callback("🔓 Ozod qilish", `unmute_${userId}`)]]);
+        duration = 600000; // 10 daqiqa
       } else if (count >= maxWarn) {
-        await moderation.muteUser(ctx, userId, 240);
+        await moderation.muteUser(ctx, userId, 240); // 4 soat
         await db.resetWarns(chatId, userId);
-        text += `\n\n🚫 ${maxWarn}-chi warn: 4 soat MUTE va warnlar nollandi.`;
+        text += `\n\n🚫 <b>5-warn:</b> 4 soat MUTE va warnlar nollandi.`;
         keyboard = Markup.inlineKeyboard([[Markup.button.callback("🔓 Ozod qilish", `unmute_${userId}`)]]);
+        duration = 600000; // 10 daqiqa
       }
 
       const reply = await ctx.replyWithHTML(text, keyboard);
-      setTimeout(() => ctx.telegram.deleteMessage(chatId, reply.message_id).catch(() => {}), 10000);
+      setTimeout(() => ctx.telegram.deleteMessage(chatId, reply.message_id).catch(() => {}), duration);
       
     } catch (e) { console.error('[WARN ERROR]', e); }
   },
   muteUser: async (ctx, userId, mins = 0) => {
     try {
-      console.log(`[MOD] Muting User: ${userId} for ${mins} mins`);
       const until = mins > 0 ? Math.floor(Date.now() / 1000) + mins * 60 : 0;
       await ctx.telegram.restrictChatMember(ctx.chat.id, userId, {
         until_date: until,
-        permissions: { can_send_messages: false }
+        permissions: { 
+          can_send_messages: false,
+          can_send_media_messages: false,
+          can_send_other_messages: false,
+          can_add_web_page_previews: false
+        }
       });
       return true;
-    } catch (e) { 
-      console.error("[MUTE ERROR]", e.message);
-      return false; 
-    }
+    } catch (e) { return false; }
   },
   unmuteUser: async (ctx, userId) => {
     try {
-      console.log(`[MOD] Unmuting User: ${userId}`);
+      const member = await ctx.getChatMember(userId);
+      if (member.status !== 'restricted') return "NOT_MUTED";
+
       await db.resetWarns(ctx.chat.id, userId);
       await ctx.telegram.restrictChatMember(ctx.chat.id, userId, {
         permissions: { 
@@ -76,14 +75,15 @@ export const moderation = {
   },
   banUser: async (ctx, userId) => {
     try {
-      console.log(`[MOD] Banning User: ${userId}`);
       await ctx.telegram.banChatMember(ctx.chat.id, userId);
       return true;
     } catch (e) { return false; }
   },
   unbanUser: async (ctx, userId) => {
     try {
-      console.log(`[MOD] Unbanning User: ${userId}`);
+      const member = await ctx.getChatMember(userId);
+      if (member.status !== 'kicked') return "NOT_BANNED";
+
       await ctx.telegram.unbanChatMember(ctx.chat.id, userId);
       return true;
     } catch (e) { return false; }
