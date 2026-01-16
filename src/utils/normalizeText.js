@@ -1,5 +1,5 @@
 
-export const normalizeText = (text) => {
+export const normalizeText = (text, strip = true) => {
   if (!text) return '';
   
   // O'zbekcha Kirilldan Lotinga o'girish jadvali
@@ -19,6 +19,11 @@ export const normalizeText = (text) => {
   const charMap = { '1': 'i', '0': 'o', '3': 'e', '4': 'a', '@': 'a', '$': 's', 'u': 'u', 'v': 'u' };
   result = result.replace(/[1034@$uv]/g, m => charMap[m] || m);
 
-  // Faqat harflarni qoldirish (yashirin yozuvlarni aniqlash uchun: s*o*k*i*n -> sokin)
-  return result.replace(/[^a-z]/gi, '');
+  if (strip) {
+    // Faqat harflarni qoldirish (Compression uchun)
+    return result.replace(/[^a-z]/gi, '');
+  }
+  
+  // Struktura (belgilar va bo'shliqlar) saqlangan holatda qaytarish
+  return result;
 };

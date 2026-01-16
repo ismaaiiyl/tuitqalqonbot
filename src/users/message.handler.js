@@ -45,15 +45,38 @@ export const handleMessage = async (ctx) => {
       }
     }
 
-    // 3. So'kinish filtri
+    // 3. So'kinish filtri (Mukammallashtirilgan mantiq)
     if (settings.swear_filter) {
-      const cleanText = normalizeText(text);
+      // Matndagi harflarni normalizatsiya qilamiz, lekin bo'shliq va belgilarni saqlaymiz
+      const structuralText = normalizeText(text, false);
+      // Yashirin (s*o*k*i*n) so'zlarni aniqlash uchun to'liq siqilgan matn
+      const compressedText = normalizeText(text, true);
+
       const globalWords = await db.getGlobalWords();
       const groupWords = await db.getGroupWords(chatId);
       const allForbiddenWords = [...new Set([...globalWords, ...groupWords])];
 
-      if (allForbiddenWords.some(w => cleanText.includes(normalizeText(w)))) {
-        console.log(`[FILTER] So'kinish topildi: ${userId}`);
+      const hasSwear = allForbiddenWords.some(forbiddenWord => {
+        const nw = normalizeText(forbiddenWord, true); // Taqiqlangan so'zning toza shakli
+        if (!nw || nw.length < 2) return false;
+
+        // Harflar orasida ixtiyoriy belgi bo'lishi mumkinligini hisobga oluvchi pattern
+        const pattern = nw.split('').join('[^a-z0-9]*');
+        
+        if (nw.length <= 3) {
+          // Qisqa so'zlar (masalan: "am"): Faqat alohida so'z bo'lgandagina flag qilamiz (\b boundary)
+          // Bu orqali "hammaga" ichidagi "am" o'tib ketadi, lekin "am", "a.m", "a*m" ushlanadi.
+          const regex = new RegExp(`\\b${pattern}\\b`, 'i');
+          return regex.test(structuralText);
+        } else {
+          // Uzun so'zlar: Ham alohida, ham boshqa so'z ichida (yoki yashirin) bo'lsa flag qilamiz
+          const regex = new RegExp(pattern, 'i');
+          return regex.test(structuralText) || compressedText.includes(nw);
+        }
+      });
+
+      if (hasSwear) {
+        console.log(`[FILTER] Taqiqlangan so'z aniqlandi: ${userId}`);
         await moderation.deleteMsg(ctx);
         return moderation.warnUser(ctx, userId, "Taqiqlangan so'z ishlatildi");
       }
