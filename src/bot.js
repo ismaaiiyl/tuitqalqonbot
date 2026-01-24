@@ -8,12 +8,17 @@ import { handleOwner } from './owner/owner.handler.js';
 import { handleAdmin, handleAdminActions } from './admin/admin.handler.js';
 import { db } from './services/supabase.service.js';
 
-const bot = new Telegraf(process.env.BOT_TOKEN);
+// Tokenni tekshirish
+const token = process.env.BOT_TOKEN;
+if (!token) {
+  console.error("❌ XATOLIK: BOT_TOKEN topilmadi! Render Environment Variables bo'limini tekshiring.");
+  process.exit(1);
+}
 
-// Sessiyani yoqish
+const bot = new Telegraf(token);
+
 bot.use(session());
 
-// Har bir guruhni bazaga saqlash
 bot.use(async (ctx, next) => {
   try {
     if (ctx.chat && (ctx.chat.type === 'group' || ctx.chat.type === 'supergroup')) {
@@ -23,12 +28,23 @@ bot.use(async (ctx, next) => {
   return next();
 });
 
-// Join Requestlarni tutish
+// Join Request handling
 bot.on('chat_join_request', async (ctx) => {
-  try { await db.saveRequest(ctx.from.id, ctx.chat.id); } catch (e) {}
+  try {
+    const userId = ctx.from.id;
+    const chatTitle = ctx.chat.title;
+    await db.saveRequest(userId, ctx.chat.id);
+    await ctx.telegram.sendMessage(userId, 
+      `👋 <b>Assalomu alaykum, ${ctx.from.first_name}!</b>\n\n` +
+      `Siz <b>${chatTitle}</b> guruhiga kirish uchun so'rov yubordingiz.\n` +
+      `Sizning so'rovingiz qabul qilindi, adminlar ko'rib chiqishmoqda.`, 
+      { parse_mode: 'HTML' }
+    ).catch(() => {});
+  } catch (e) {
+    console.error('[JOIN REQUEST ERROR]', e);
+  }
 });
 
-// Handlerlarni ulash
 handleOwner(bot);
 handleAdmin(bot);
 handleAdminActions(bot);
@@ -47,50 +63,28 @@ bot.catch((err, ctx) => {
   console.error(`🛑 Global Xatolik (${ctx.updateType}):`, err);
 });
 
-// Webhook va Health-check sozlamalari
-const PORT = process.env.PORT || 3000;
-const WEBHOOK_URL = process.env.WEBHOOK_URL; // Koyeb bergan public URL (masalan: https://app-name.koyeb.app)
+// Render uchun Port va Health-check
+const PORT = process.env.PORT || 10000; 
+const server = http.createServer((req, res) => {
+  res.writeHead(200);
+  res.end('UzModeratorBot is Running!');
+});
 
-if (WEBHOOK_URL) {
-  // WEBHOOK REJIMI (Koyeb uchun ideal)
-  const secretPath = `/telegraf/${bot.secretPathComponent()}`;
-  
-  bot.telegram.setWebhook(`${WEBHOOK_URL}${secretPath}`);
-  
-  const server = http.createServer((req, res) => {
-    if (req.url === '/' || req.url === '/health') {
-      res.writeHead(200);
-      res.end('UzModeratorBot is Alive and Healthy!');
-      return;
-    }
-    // Webhook so'rovlarini Telegraf-ga yo'naltirish
-    if (req.url === secretPath) {
-      bot.webhookCallback(secretPath)(req, res);
-      return;
-    }
-    res.writeHead(404);
-    res.end();
-  });
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Server started on port ${PORT}`);
+});
 
-  server.listen(PORT, () => {
-    console.log(`🚀 Webhook mode: ${WEBHOOK_URL} (Port: ${PORT})`);
-  });
-} else {
-  // POLLING REJIMI (Local test uchun)
-  const server = http.createServer((req, res) => {
-    res.writeHead(200);
-    res.end('Bot is running in Polling mode...');
-  });
-  
-  server.listen(PORT, () => {
-    console.log(`📡 Polling mode: Health-check on port ${PORT}`);
-  });
+bot.launch({
+  allowedUpdates: ['message', 'callback_query', 'chat_join_request', 'chat_member']
+}).then(() => {
+  console.log("🚀 Bot Active (Polling mode)");
+}).catch(err => {
+  if (err.response && err.response.error_code === 401) {
+    console.error("❌ XATOLIK: Telegram Token noto'g'ri (401 Unauthorized)!");
+  } else {
+    console.error("❌ Botni ishga tushirishda xatolik:", err);
+  }
+});
 
-  bot.launch().then(() => {
-    console.log("🚀 UzModeratorBot Active (Polling)");
-  });
-}
-
-// Graceful stop
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
