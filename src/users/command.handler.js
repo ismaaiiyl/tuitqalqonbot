@@ -83,7 +83,7 @@ Men <b>${botName}</b> — guruhlaringiz xavfsizligini ta'minlovchi moderator bot
 
       await ctx.replyWithHTML(welcomeText, Markup.inlineKeyboard([
         [Markup.button.url("➕ Guruhga qo'shish", `https://t.me/${botUser}?startgroup=true`)],
-        [Markup.button.url("👨‍💻 Dasturchi", "https://t.me/ninja_askbot")]
+        [Markup.button.url("👨‍💻 Dasturchi", "https://t.me/ninjaskbot")]
       ]));
     } catch (e) {}
   });
