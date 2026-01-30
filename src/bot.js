@@ -2,6 +2,7 @@
 import 'dotenv/config';
 import { Telegraf, session } from 'telegraf';
 import http from 'http';
+import https from 'https';
 import { handleMessage, handleServiceMessage } from './users/message.handler.js';
 import { handleCommands, handleActions } from './users/command.handler.js';
 import { handleOwner } from './owner/owner.handler.js';
@@ -15,7 +16,9 @@ if (!token) {
   process.exit(1);
 }
 
-const bot = new Telegraf(token);
+const bot = new Telegraf(token, {
+  handlerTimeout: 90000 // Tarmoq sekin bo'lganda kutish vaqtini uzaytirish
+});
 
 bot.use(session());
 
@@ -39,7 +42,7 @@ bot.on('chat_join_request', async (ctx) => {
       `Siz <b>${chatTitle}</b> guruhiga kirish uchun so'rov yubordingiz.\n` +
       `Sizning so'rovingiz qabul qilindi, adminlar ko'rib chiqishmoqda.`, 
       { parse_mode: 'HTML' }
-    ).catch(() => {});
+    ).catch((err) => console.log(`[JOIN REQ SEND ERROR] ${userId}: ${err.message}`));
   } catch (e) {
     console.error('[JOIN REQUEST ERROR]', e);
   }
@@ -59,8 +62,17 @@ bot.on([
 
 bot.on(['text', 'caption'], handleMessage);
 
+// Global xatoliklarni ushlash (ETIMEDOUT va b.q.)
 bot.catch((err, ctx) => {
-  console.error(`🛑 Global Xatolik (${ctx.updateType}):`, err);
+  console.error(`🛑 Telegraf Error (${ctx.updateType}):`, err.message);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('⚠️ Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('⚠️ Uncaught Exception:', err);
 });
 
 // Render uchun Port va Health-check
@@ -74,17 +86,31 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server started on port ${PORT}`);
 });
 
-bot.launch({
-  allowedUpdates: ['message', 'callback_query', 'chat_join_request', 'chat_member']
-}).then(() => {
-  console.log("🚀 Bot Active (Polling mode)");
-}).catch(err => {
-  if (err.response && err.response.error_code === 401) {
-    console.error("❌ XATOLIK: Telegram Token noto'g'ri (401 Unauthorized)!");
-  } else {
-    console.error("❌ Botni ishga tushirishda xatolik:", err);
+// Render Keep-Alive (Ping) - 10 daqiqada bir
+const RENDER_URL = process.env.RENDER_EXTERNAL_URL;
+if (RENDER_URL) {
+  setInterval(() => {
+    https.get(RENDER_URL, (res) => {
+      console.log(`[PING] Status: ${res.statusCode}`);
+    }).on('error', (err) => {
+      console.error('[PING ERROR]:', err.message);
+    });
+  }, 600000); // 10 daqiqa (600,000 ms)
+}
+
+const startBot = async () => {
+  try {
+    await bot.launch({
+      allowedUpdates: ['message', 'callback_query', 'chat_join_request', 'chat_member']
+    });
+    console.log("🚀 Bot Active (Polling mode)");
+  } catch (err) {
+    console.error("❌ Botni ishga tushirishda xatolik, 5 soniyadan so'ng qayta urinish...", err.message);
+    setTimeout(startBot, 5000);
   }
-});
+};
+
+startBot();
 
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
